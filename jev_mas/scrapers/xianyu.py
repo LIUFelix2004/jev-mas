@@ -138,10 +138,33 @@ class XianyuScraper(BaseScraper):
                         const priceEl = item.querySelector('[class*="price"], [class*="Price"]');
                         const linkEl = item.closest('a[href]') || item.querySelector('a[href]');
                         if (titleEl && priceEl) {
-                            const priceText = priceEl.innerText.replace(/[^0-9.]/g, '');
+                            // 只取价格元素的直接文本，不包含子元素（如"想要"按钮）
+                            let priceText = '';
+                            const priceChildren = priceEl.childNodes;
+                            for (const node of priceChildren) {
+                                if (node.nodeType === 3) { // TEXT_NODE
+                                    priceText += node.textContent;
+                                } else if (node.classList && (
+                                    node.className.includes('price') ||
+                                    node.className.includes('Price') ||
+                                    node.className.includes('num') ||
+                                    node.tagName === 'SPAN'
+                                )) {
+                                    priceText += node.textContent;
+                                }
+                                // 拿到第一个数字就够了
+                                const m = priceText.match(/[\d,]+\.?\d*/);
+                                if (m) { priceText = m[0]; break; }
+                            }
+                            if (!priceText) {
+                                // fallback: 从整个文本中提取第一个价格
+                                const m = priceEl.innerText.match(/([\d,]+\.?\d*)/);
+                                priceText = m ? m[1] : '0';
+                            }
+                            const price = parseFloat(priceText.replace(/,/g, '')) || 0;
                             results.push({
                                 title: titleEl.innerText.trim(),
-                                price: parseFloat(priceText) || 0,
+                                price: price,
                                 url: linkEl ? linkEl.href : '',
                             });
                         }
@@ -154,7 +177,7 @@ class XianyuScraper(BaseScraper):
         listings: list[ProductListing] = []
         for item in (items_data or [])[:max_results]:
             price = item.get("price", 0)
-            if price <= 0:
+            if price <= 0 or price > 999999:
                 continue
             listings.append(ProductListing(
                 platform=self.platform,
