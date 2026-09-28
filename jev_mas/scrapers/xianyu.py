@@ -153,12 +153,12 @@ class XianyuScraper(BaseScraper):
                                     priceText += node.textContent;
                                 }
                                 // 拿到第一个数字就够了
-                                const m = priceText.match(/[\d,]+\.?\d*/);
+                                const m = priceText.match(/[\\d,]+\\.?\\d*/);
                                 if (m) { priceText = m[0]; break; }
                             }
                             if (!priceText) {
                                 // fallback: 从整个文本中提取第一个价格
-                                const m = priceEl.innerText.match(/([\d,]+\.?\d*)/);
+                                const m = priceEl.innerText.match(/([\\d,]+\\.?\\d*)/);
                                 priceText = m ? m[1] : '0';
                             }
                             const price = parseFloat(priceText.replace(/,/g, '')) || 0;
