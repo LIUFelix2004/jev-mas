@@ -1,16 +1,12 @@
 """爬虫基类
 
-两种数据抓取策略：
-1. mtop API 拦截 (推荐): Playwright 打开页面获取登录态 → page.evaluate 调用 window.lib.mtop.request()
-2. DOM 解析 (兜底): 直接解析页面元素
-
-mtop 方式返回结构化 JSON，比 DOM 解析稳定得多。
+使用系统已安装的 Chrome 浏览器 (channel="chrome") 而非 Playwright 自带的 Chromium，
+绕过阿里系的反自动化检测。
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
 from abc import ABC, abstractmethod
 from pathlib import Path
 
@@ -31,20 +27,35 @@ class BaseScraper(ABC):
 
     async def start(self) -> None:
         self._pw = await async_playwright().start()
-        self._browser = await self._pw.chromium.launch(headless=self._headless)
+        # 用系统 Chrome 而非 Playwright Chromium，降低被反爬检测的概率
+        self._browser = await self._pw.chromium.launch(
+            headless=self._headless,
+            channel="chrome",
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--no-first-run",
+                "--no-default-browser-check",
+            ],
+        )
 
         context_opts = {
-            "viewport": {"width": 375, "height": 812},
+            "viewport": {"width": 430, "height": 932},
             "user_agent": (
-                "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) "
-                "AppleWebKit/605.1.15 (KHTML, like Gecko) "
-                "Version/17.0 Mobile/15E148 Safari/604.1"
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/131.0.0.0 Safari/537.36"
             ),
         }
         if self._storage_state_path and Path(self._storage_state_path).exists():
             context_opts["storage_state"] = self._storage_state_path
 
         self._context = await self._browser.new_context(**context_opts)
+
+        # 注入反检测脚本
+        await self._context.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+            delete navigator.__proto__.webdriver;
+        """)
 
     async def stop(self) -> None:
         if self._context:

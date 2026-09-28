@@ -246,23 +246,35 @@ class XianyuScraper(BaseScraper):
 
 
 async def login_interactive(storage_state_path: str = "xianyu_state.json") -> None:
-    """交互式登录闲鱼（扫码），保存登录态供后续使用
+    """交互式登录闲鱼，保存登录态供后续使用
 
-    用法:
-        python -c "import asyncio; from jev_mas.scrapers.xianyu import login_interactive; asyncio.run(login_interactive())"
+    使用系统 Chrome 浏览器，避免被反爬检测拦截验证码。
     """
     from playwright.async_api import async_playwright
 
     async with async_playwright() as pw:
-        browser = await pw.chromium.launch(headless=False)
+        browser = await pw.chromium.launch(
+            headless=False,
+            channel="chrome",
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--no-first-run",
+                "--no-default-browser-check",
+            ],
+        )
         context = await browser.new_context(
-            viewport={"width": 375, "height": 812},
+            viewport={"width": 430, "height": 932},
             user_agent=(
-                "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) "
-                "AppleWebKit/605.1.15 (KHTML, like Gecko) "
-                "Version/17.0 Mobile/15E148 Safari/604.1"
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/131.0.0.0 Safari/537.36"
             ),
         )
+        await context.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+            delete navigator.__proto__.webdriver;
+        """)
+
         page = await context.new_page()
         await page.goto("https://www.goofish.com")
 
