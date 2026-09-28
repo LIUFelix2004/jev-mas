@@ -55,11 +55,22 @@ playwright install chromium
 
 # 配置
 cp .env.example .env
-# 编辑 .env 填入 Jev API Key
+# 编辑 .env，填入你的 TYPESAFE_API_KEY (apikey_ 开头)
+
+# 验证 API 连通性
+python test_jev.py
 
 # 运行监控
 python -m jev_mas.main
 ```
+
+## Jev API 接入
+
+- **端点**: `POST https://api.typesafe.ai/v1/systemone`
+- **认证**: `Authorization: Bearer apikey_...`
+- **模型**: `jev-latest`
+- **三种判断**: `noul`(是/否概率) / `choice`(选择) / `score`(打分)
+- **注意**: instructions 建议用英文，state 里的中文商品信息没问题
 
 ## 目录结构
 
