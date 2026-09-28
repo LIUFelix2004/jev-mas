@@ -77,7 +77,7 @@ async def run() -> None:
     jev = JevClient(config.jev_api_key, config.jev_base_url)
 
     scrapers = [
-        XianyuScraper(headless=config.headless),
+        XianyuScraper(headless=config.headless, storage_state_path="xianyu_state.json"),
         ZhuanzhuanScraper(headless=config.headless),
         PaijitangScraper(headless=config.headless),
     ]
