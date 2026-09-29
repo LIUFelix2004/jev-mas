@@ -70,7 +70,7 @@ async def test():
                 },
                 "deal_quality": {
                     "type": "score",
-                    "instructions": "How good is this arbitrage opportunity",
+                    "instructions": "How good is this resale deal",
                     "criteria": [
                         "Bad deal, not worth the effort",
                         "Marginal, barely profitable",

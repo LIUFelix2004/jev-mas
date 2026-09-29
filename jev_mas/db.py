@@ -1,64 +1,43 @@
-"""SQLite 存储层
-
-存储历史价格数据，用于：
-- 追踪价格趋势
-- 发现稳定套利区间
-- 过滤一次性异常价格
-"""
+"""SQLite 存储：挂单历史（算行情价用）+ 已推送的捡漏（去重用）"""
 
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime, timezone
-from typing import Iterator
+from datetime import datetime, timedelta, timezone
 
-from jev_mas.models import ArbitrageOpportunity, Condition, Platform, ProductListing, RecyclePrice
+from jev_mas.models import Deal, ProductListing, Vetting
 
 SCHEMA = """
-CREATE TABLE IF NOT EXISTS listings (
+CREATE TABLE IF NOT EXISTS items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    platform TEXT NOT NULL,
+    item_id TEXT NOT NULL,
+    keyword TEXT NOT NULL,
     title TEXT NOT NULL,
     price REAL NOT NULL,
     url TEXT,
-    model_name TEXT,
     condition TEXT,
-    storage TEXT,
-    color TEXT,
+    defect TEXT,
+    is_target REAL,
+    valid INTEGER,
     scraped_at TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_items_kw ON items(keyword, scraped_at);
+CREATE INDEX IF NOT EXISTS idx_items_id ON items(item_id, keyword);
 
-CREATE TABLE IF NOT EXISTS opportunities (
+CREATE TABLE IF NOT EXISTS deals (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    buy_platform TEXT NOT NULL,
-    buy_title TEXT NOT NULL,
-    buy_price REAL NOT NULL,
-    sell_platform TEXT NOT NULL,
-    sell_title TEXT NOT NULL,
-    sell_price REAL NOT NULL,
-    price_diff REAL NOT NULL,
-    profit_rate REAL NOT NULL,
-    confidence REAL,
-    found_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS recycle_prices (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    model_name TEXT NOT NULL,
-    spec TEXT NOT NULL,
-    storage TEXT,
-    channel TEXT,
-    color TEXT,
-    warranty TEXT,
-    grade TEXT NOT NULL,
+    item_id TEXT NOT NULL,
+    keyword TEXT NOT NULL,
+    title TEXT NOT NULL,
     price REAL NOT NULL,
-    scraped_at TEXT NOT NULL
+    reference_price REAL NOT NULL,
+    condition TEXT,
+    confidence REAL,
+    risk TEXT,
+    url TEXT,
+    found_at TEXT NOT NULL,
+    UNIQUE(item_id, price)
 );
-
-CREATE INDEX IF NOT EXISTS idx_recycle_model ON recycle_prices(model_name, storage, grade);
-CREATE INDEX IF NOT EXISTS idx_listings_model ON listings(model_name);
-CREATE INDEX IF NOT EXISTS idx_listings_platform ON listings(platform);
-CREATE INDEX IF NOT EXISTS idx_listings_scraped ON listings(scraped_at);
 """
 
 
@@ -68,89 +47,47 @@ class Database:
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(SCHEMA)
 
-    def save_listing(self, listing: ProductListing) -> None:
-        self._conn.execute(
-            "INSERT INTO listings (platform, title, price, url, model_name, condition, storage, color, scraped_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                listing.platform.value,
-                listing.title,
-                listing.price,
-                listing.url,
-                listing.model_name,
-                listing.condition.value,
-                listing.storage,
-                listing.color,
-                (listing.scraped_at or datetime.now(timezone.utc)).isoformat(),
-            ),
-        )
-        self._conn.commit()
-
-    def save_listings(self, listings: list[ProductListing]) -> None:
+    def save_items(self, keyword: str, vetted: list[tuple[ProductListing, Vetting]]) -> None:
+        now = datetime.now(timezone.utc).isoformat()
         self._conn.executemany(
-            "INSERT INTO listings (platform, title, price, url, model_name, condition, storage, color, scraped_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            [
-                (
-                    l.platform.value, l.title, l.price, l.url,
-                    l.model_name, l.condition.value, l.storage, l.color,
-                    (l.scraped_at or datetime.now(timezone.utc)).isoformat(),
-                )
-                for l in listings
-            ],
-        )
-        self._conn.commit()
-
-    def save_opportunity(self, opp: ArbitrageOpportunity) -> None:
-        self._conn.execute(
-            "INSERT INTO opportunities "
-            "(buy_platform, buy_title, buy_price, sell_platform, sell_title, sell_price, "
-            "price_diff, profit_rate, confidence, found_at) "
+            "INSERT INTO items (item_id, keyword, title, price, url, condition, defect, is_target, valid, scraped_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                opp.buy_listing.platform.value,
-                opp.buy_listing.title,
-                opp.buy_listing.price,
-                opp.sell_listing.platform.value,
-                opp.sell_listing.title,
-                opp.sell_listing.price,
-                opp.price_diff,
-                opp.profit_rate,
-                opp.confidence,
-                (opp.found_at or datetime.now(timezone.utc)).isoformat(),
-            ),
-        )
-        self._conn.commit()
-
-    def get_price_history(self, model_name: str, platform: str | None = None, limit: int = 50) -> list[dict]:
-        query = "SELECT * FROM listings WHERE model_name = ?"
-        params: list = [model_name]
-        if platform:
-            query += " AND platform = ?"
-            params.append(platform)
-        query += " ORDER BY scraped_at DESC LIMIT ?"
-        params.append(limit)
-        return [dict(row) for row in self._conn.execute(query, params)]
-
-    def save_recycle_price(self, rp: RecyclePrice) -> None:
-        ts = (rp.scraped_at or datetime.now(timezone.utc)).isoformat()
-        self._conn.executemany(
-            "INSERT INTO recycle_prices (model_name, spec, storage, channel, color, warranty, grade, price, scraped_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [
-                (rp.model_name, rp.spec, rp.storage, rp.channel, rp.color, rp.warranty, grade, price, ts)
-                for grade, price in rp.grade_prices.items()
+                (l.item_id, keyword, l.title, l.price, l.url, v.condition.value, v.defect.value,
+                 v.is_target, int(v.valid), now)
+                for l, v in vetted
             ],
         )
         self._conn.commit()
 
-    def get_recent_opportunities(self, limit: int = 20) -> list[dict]:
-        return [
-            dict(row)
-            for row in self._conn.execute(
-                "SELECT * FROM opportunities ORDER BY found_at DESC LIMIT ?", (limit,)
-            )
-        ]
+    def price_history(self, keyword: str, days: int, exclude_ids: set[str]) -> dict[str, list[float]]:
+        """近 N 天合格挂单的价格（每个商品只取最新一次），按成色分组"""
+        since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        rows = self._conn.execute(
+            "SELECT item_id, condition, price FROM items i "
+            "WHERE keyword = ? AND valid = 1 AND scraped_at >= ? AND scraped_at = "
+            "(SELECT MAX(scraped_at) FROM items WHERE item_id = i.item_id AND keyword = i.keyword)",
+            (keyword, since),
+        )
+        out: dict[str, list[float]] = {}
+        for r in rows:
+            if r["item_id"] not in exclude_ids:
+                out.setdefault(r["condition"], []).append(r["price"])
+        return out
+
+    def record_deal(self, deal: Deal) -> bool:
+        """记录捡漏；同一商品同一价格已记录过则返回 False（不重复推送）"""
+        cur = self._conn.execute(
+            "INSERT OR IGNORE INTO deals (item_id, keyword, title, price, reference_price, condition, "
+            "confidence, risk, url, found_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                deal.listing.item_id, deal.keyword, deal.listing.title, deal.listing.price,
+                deal.reference_price, deal.vetting.condition.value, deal.confidence, deal.risk,
+                deal.listing.url, (deal.found_at or datetime.now(timezone.utc)).isoformat(),
+            ),
+        )
+        self._conn.commit()
+        return cur.rowcount == 1
 
     def close(self) -> None:
         self._conn.close()

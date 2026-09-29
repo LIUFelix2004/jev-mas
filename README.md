@@ -1,96 +1,49 @@
-# jev-mas: 二手数码跨平台套利监控系统
+# jev-mas: 闲鱼二手数码捡漏监控
 
-Multi-platform Arbitrage Scanner for second-hand electronics.
+盯住指定机型，自动发现闲鱼上明显低于行情的挂单。
 
-监控 **闲鱼 / 转转 / 拍机堂** 三大平台的二手数码产品价格差，自动发现套利机会。
+## 工作流程
 
-## 架构
-
-```
-┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│   闲鱼       │    │   转转       │    │   拍机堂     │
-│  (自由市场)   │    │ (官方回收+C2C)│    │  (官方回收)   │
-└──────┬──────┘    └──────┬──────┘    └──────┬──────┘
-       │                  │                  │
-       ▼                  ▼                  ▼
-┌─────────────────────────────────────────────────────┐
-│              Scraper Layer (Playwright)              │
-│         jev-ultrafast 浏览器 Agent 驱动               │
-└──────────────────────┬──────────────────────────────┘
-                       │
-                       ▼
-┌─────────────────────────────────────────────────────┐
-│              Jev Processing Layer                    │
-│  · 商品匹配 (同型号/同成色判断)                        │
-│  · 价格清洗 (去掉异常值)                              │
-│  · 套利信号评分                                      │
-└──────────────────────┬──────────────────────────────┘
-                       │
-                       ▼
-┌─────────────────────────────────────────────────────┐
-│              Alert & Dashboard                       │
-│  · 价差超阈值 → 推送通知                              │
-│  · 历史价格趋势                                      │
-│  · 套利机会看板                                      │
-└─────────────────────────────────────────────────────┘
-```
-
-## 技术栈
-
-- **Python 3.11+**
-- **Playwright** - 浏览器自动化，模拟登录和数据抓取
-- **Jev API** - 快速判断模型，用于：
-  - 浏览器 Agent 决策（点哪里、输什么）
-  - 商品匹配和分类
-  - 套利信号评分
-- **SQLite** - 本地价格数据存储
-- **Rich** - 终端 Dashboard
+1. **抓取**：Playwright 驱动系统 Chrome 搜索闲鱼（复用登录态）
+2. **审核**：Jev 对每条挂单一次判断三件事
+   - 是不是目标机型的整机（排除配件、求购、租赁、型号/容量不符）
+   - 成色：准新 / 良好 / 一般 / 较差
+   - 硬伤：无 / 小问题（电池、细划痕）/ 大问题（碎屏、主板、ID 锁…，直接排除）
+3. **行情价**：合格挂单 + 近几天历史，按成色取中位数（样本 ≥5 条）
+4. **捡漏**：低于行情 ≥8% 且 ≥¥200 → Jev 评估是否骗局/隐藏问题 → 可信度达标就推送
+5. **去重**：同一商品同一价格只推一次；降价会再推
 
 ## 快速开始
 
 ```bash
-# 安装依赖
 pip install -r requirements.txt
-playwright install chromium
+cp .env.example .env            # 填 TYPESAFE_API_KEY 和 TARGET_KEYWORDS
 
-# 配置
-cp .env.example .env
-# 编辑 .env，填入你的 TYPESAFE_API_KEY (apikey_ 开头)
+python test_jev.py              # 验证 Jev API
+python test_xianyu.py --login   # 首次登录闲鱼（扫码）
+python test_xianyu.py "iPhone 15 Pro Max 256G"   # 验证搜索
 
-# 验证 API 连通性
-python test_jev.py
-
-# 运行监控
-python -m jev_mas.main
+python -m jev_mas.main --once   # 扫一轮
+python -m jev_mas.main          # 持续监控
 ```
 
-## Jev API 接入
+## Jev API
 
-- **端点**: `POST https://api.typesafe.ai/v1/systemone`
-- **认证**: `Authorization: Bearer apikey_...`
-- **模型**: `jev-latest`
-- **三种判断**: `noul`(是/否概率) / `choice`(选择) / `score`(打分)
-- **注意**: instructions 建议用英文，state 里的中文商品信息没问题
+- `POST https://api.typesafe.ai/v1/systemone`，`Authorization: Bearer apikey_...`，`model: jev-latest`
+- 三种判断：`noul`（是/否概率）/ `choice`（选项）/ `score`（打分）
+- instructions 用英文，state 里的中文商品信息没问题
 
-## 目录结构
+## 目录
 
 ```
 jev_mas/
-├── __init__.py
-├── main.py              # 入口
-├── config.py            # 配置管理
-├── scrapers/            # 各平台爬虫
-│   ├── base.py          # 爬虫基类
-│   ├── xianyu.py        # 闲鱼
-│   ├── zhuanzhuan.py    # 转转
-│   └── paijitang.py     # 拍机堂
-├── jev/                 # Jev 集成
-│   ├── client.py        # Jev API 客户端
-│   ├── matcher.py       # 商品匹配
-│   └── scorer.py        # 套利评分
-├── models.py            # 数据模型
-├── db.py                # 数据库操作
-├── arbitrage.py         # 套利计算引擎
-├── alerts.py            # 通知推送
-└── dashboard.py         # 终端看板
+├── main.py            # 入口：扫描循环
+├── config.py          # .env 配置
+├── scrapers/xianyu.py # 闲鱼搜索（mtop → 拦截 → DOM 三级降级）
+├── jev/client.py      # Jev API 客户端
+├── jev/judge.py       # 挂单审核 + 捡漏风险评估
+├── deals.py           # 行情价与捡漏判定
+├── db.py              # SQLite：挂单历史 + 已推送记录
+├── alerts.py          # 终端 / Webhook 提醒
+└── models.py
 ```
