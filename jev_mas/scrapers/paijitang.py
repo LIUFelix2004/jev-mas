@@ -9,7 +9,7 @@
     99新 3850元 | 95新 3750元 | 9新 3680元 | 85新 3330元 | 8新 3210元
 
 页面 class 名不可靠，解析全部基于 innerText + 正则，与 DOM 结构解耦。
-H5 地址和接口尚未实测，可用 PAIJITANG_URL 环境变量覆盖；
+默认 PC 站 www.paijitang.com，可用 PAIJITANG_URL 环境变量覆盖；接口尚未实测，
 先跑 probe_paijitang.py 录下真实接口，再补 API 直连策略。
 """
 
@@ -18,6 +18,7 @@ from __future__ import annotations
 import os
 import re
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 
 from playwright.async_api import Page
 
@@ -34,6 +35,17 @@ MOBILE_UA = (
     "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) "
     "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1"
 )
+DESKTOP_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+)
+
+
+def context_options(url: str) -> dict:
+    """m. 开头的 H5 站用手机模拟，其余按 PC 站处理"""
+    if urlparse(url).hostname.startswith("m."):
+        return {"viewport": {"width": 430, "height": 932}, "user_agent": MOBILE_UA, "is_mobile": True, "has_touch": True}
+    return {"viewport": {"width": 1440, "height": 900}, "user_agent": DESKTOP_UA}
 
 
 def _to_float(s: str) -> float:
@@ -112,13 +124,12 @@ def parse_hot_models(text: str) -> list[str]:
 
 class PaijitangScraper(BaseScraper):
     platform = Platform.PAIJITANG
-    BASE_URL = os.getenv("PAIJITANG_URL", "https://m.paijitang.com")
+    BASE_URL = os.getenv("PAIJITANG_URL", "https://www.paijitang.com")
 
     async def start(self) -> None:
         await super().start()
-        # 拍机堂是移动端页面，换成手机 UA 重建 context
         await self._context.close()
-        opts = {"viewport": {"width": 430, "height": 932}, "user_agent": MOBILE_UA, "is_mobile": True, "has_touch": True}
+        opts = context_options(self.BASE_URL)
         if self._storage_state_path and os.path.exists(self._storage_state_path):
             opts["storage_state"] = self._storage_state_path
         self._context = await self._browser.new_context(**opts)

@@ -1,8 +1,8 @@
 """拍机堂探测工具：手动操作浏览器，自动录下接口并试解析当前页面
 
 用法:
-    python probe_paijitang.py                      # 默认打开 m.paijitang.com
-    python probe_paijitang.py --url https://xxx    # 换成你实际能打开的 H5 地址
+    python probe_paijitang.py                      # 默认打开 www.paijitang.com
+    python probe_paijitang.py --url https://xxx    # 换成其他地址（m. 开头会用手机模拟）
 
 在弹出的 Chrome 里登录、进入「估个价」→ 选一个型号 → 打开估价详情页。
 回到终端:
@@ -25,7 +25,7 @@ from playwright.async_api import Response, async_playwright
 from rich.console import Console
 from rich.table import Table
 
-from jev_mas.scrapers.paijitang import MOBILE_UA, parse_hot_models, parse_price_sheet
+from jev_mas.scrapers.paijitang import context_options, parse_hot_models, parse_price_sheet
 
 console = Console()
 OUT = Path("paijitang_capture")
@@ -63,7 +63,7 @@ async def main(url: str) -> None:
             headless=False, channel="chrome",
             args=["--disable-blink-features=AutomationControlled", "--no-first-run"],
         )
-        opts = {"viewport": {"width": 430, "height": 932}, "user_agent": MOBILE_UA, "is_mobile": True, "has_touch": True}
+        opts = context_options(url)
         if Path(STATE).exists():
             opts["storage_state"] = STATE
             console.print("[green]已加载上次的登录态[/]")
@@ -113,5 +113,5 @@ async def main(url: str) -> None:
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--url", default="https://m.paijitang.com")
+    ap.add_argument("--url", default="https://www.paijitang.com")
     asyncio.run(main(ap.parse_args().url))
