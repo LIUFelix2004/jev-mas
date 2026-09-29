@@ -9,3 +9,4 @@ build/
 paijitang_capture/
 .venv/
 venv/
+chrome_profile_*/
