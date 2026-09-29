@@ -12,7 +12,7 @@ import sqlite3
 from datetime import datetime, timezone
 from typing import Iterator
 
-from jev_mas.models import ArbitrageOpportunity, Condition, Platform, ProductListing
+from jev_mas.models import ArbitrageOpportunity, Condition, Platform, ProductListing, RecyclePrice
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS listings (
@@ -42,6 +42,20 @@ CREATE TABLE IF NOT EXISTS opportunities (
     found_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS recycle_prices (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    model_name TEXT NOT NULL,
+    spec TEXT NOT NULL,
+    storage TEXT,
+    channel TEXT,
+    color TEXT,
+    warranty TEXT,
+    grade TEXT NOT NULL,
+    price REAL NOT NULL,
+    scraped_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_recycle_model ON recycle_prices(model_name, storage, grade);
 CREATE INDEX IF NOT EXISTS idx_listings_model ON listings(model_name);
 CREATE INDEX IF NOT EXISTS idx_listings_platform ON listings(platform);
 CREATE INDEX IF NOT EXISTS idx_listings_scraped ON listings(scraped_at);
@@ -117,6 +131,18 @@ class Database:
         query += " ORDER BY scraped_at DESC LIMIT ?"
         params.append(limit)
         return [dict(row) for row in self._conn.execute(query, params)]
+
+    def save_recycle_price(self, rp: RecyclePrice) -> None:
+        ts = (rp.scraped_at or datetime.now(timezone.utc)).isoformat()
+        self._conn.executemany(
+            "INSERT INTO recycle_prices (model_name, spec, storage, channel, color, warranty, grade, price, scraped_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                (rp.model_name, rp.spec, rp.storage, rp.channel, rp.color, rp.warranty, grade, price, ts)
+                for grade, price in rp.grade_prices.items()
+            ],
+        )
+        self._conn.commit()
 
     def get_recent_opportunities(self, limit: int = 20) -> list[dict]:
         return [

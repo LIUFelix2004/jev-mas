@@ -79,7 +79,7 @@ async def run() -> None:
     scrapers = [
         XianyuScraper(headless=config.headless, storage_state_path="xianyu_state.json"),
         ZhuanzhuanScraper(headless=config.headless),
-        PaijitangScraper(headless=config.headless),
+        PaijitangScraper(headless=config.headless, storage_state_path="paijitang_state.json"),
     ]
 
     for s in scrapers:

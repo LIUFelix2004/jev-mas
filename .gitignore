@@ -5,5 +5,7 @@ dist/
 build/
 .env
 *.db
+*_state.json
+paijitang_capture/
 .venv/
 venv/
